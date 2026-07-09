@@ -17,15 +17,15 @@ https://github.com/user-attachments/assets/5bb6d97a-df8b-45da-8368-3f9b94f2d4c8
 
 ## Tech Stack
 
-- .NET 9 (`net9.0`)
+- .NET 10 (`net10.0`)
 - ASP.NET Core Razor Pages + minimal APIs
-- Entity Framework Core 9 + SQLite
+- Entity Framework Core 10 + SQLite
 - Leaflet + OpenStreetMap tiles
 - xUnit tests
 
 ## Prerequisites
 
-- .NET 9 SDK installed
+- .NET 10 SDK installed
 - Optional for migration commands: `dotnet-ef` tool
 
 Install EF CLI tool (if needed):
@@ -140,3 +140,5 @@ dotnet ef database update --project WikiMapScraper.Web
 ```bash
 dotnet dev-certs https --trust
 ```
+
+### Pls get in touch with any questions or requests 😊🌈
