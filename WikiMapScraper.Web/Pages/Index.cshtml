@@ -1,0 +1,417 @@
+@page
+@model IndexModel
+@{
+    ViewData["Title"] = "WikiMapScraper";
+}
+
+@section Head {
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+          crossorigin="" />
+}
+
+<div class="wiki-map-page full-bleed">
+    <aside class="sidebar-column">
+        <div class="search-panel card shadow-sm">
+            <div class="card-body">
+                <h1 class="h3 mb-3">🗺️ WikiMapScraper</h1>
+
+                <form id="searchForm" class="row g-2">
+                    <div class="col-12">
+                        <input id="topicInput" name="topic" class="form-control" maxlength="80" placeholder="Enter a topic, e.g. pyramid" required />
+                    </div>
+                    <div class="col-12 d-flex align-items-end gap-2">
+                        <button id="searchButton" type="submit" class="btn btn-primary flex-fill">Search</button>
+                    </div>
+                </form>
+
+                <p id="statusMessage" class="status-message mt-3 mb-0" aria-live="polite"></p>
+            </div>
+        </div>
+
+        <section class="topic-results card shadow-sm" aria-live="polite">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Topics</h2>
+                <div id="topicResults" class="topic-results-list"></div>
+            </div>
+        </section>
+    </aside>
+
+    <main class="map-column">
+        <div id="map" class="map-frame" role="application" aria-label="World map with topic pins"></div>
+    </main>
+</div>
+
+@section Scripts {
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+            crossorigin=""></script>
+    <script>
+        const map = L.map('map', { minZoom: 3 }).setView([20, 0], 3);
+        map.setMinZoom(3);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        const markerLayer = L.layerGroup().addTo(map);
+
+        const form = document.getElementById('searchForm');
+        const topicInput = document.getElementById('topicInput');
+        const searchButton = document.getElementById('searchButton');
+        const statusMessage = document.getElementById('statusMessage');
+        const topicResults = document.getElementById('topicResults');
+        const pageSize = 5;
+        const topicOffsets = new Map();
+        let allTopicRows = [];
+        const markerByPlaceId = new Map();
+
+        function refreshMapSize() {
+            requestAnimationFrame(() => {
+                map.invalidateSize();
+            });
+        }
+
+        function centerPopupVertically(popup) {
+            if (!popup) {
+                return;
+            }
+
+            const popupElement = popup.getElement();
+            const source = popup._source;
+            if (!popupElement || !source || !source.getLatLng) {
+                return;
+            }
+
+            const markerPoint = map.latLngToContainerPoint(source.getLatLng());
+            const mapCenterY = map.getSize().y / 2;
+            const popupHeight = popupElement.offsetHeight;
+
+            if (popupHeight <= 0) {
+                return;
+            }
+
+            const popupTipHeight = 12;
+            const popupHalfHeightFromMarker = (popupHeight + popupTipHeight) / 2;
+            const desiredMarkerY = mapCenterY + popupHalfHeightFromMarker;
+            const markerShiftY = desiredMarkerY - markerPoint.y;
+
+            if (Math.abs(markerShiftY) < 2) {
+                return;
+            }
+
+            map.panBy([0, -markerShiftY], {});
+        }
+
+        function setStatus(message, isError = false) {
+            statusMessage.textContent = message;
+            statusMessage.classList.toggle('error', isError);
+
+            refreshMapSize();
+        }
+
+        function createMarkerIcon(color) {
+            return L.divIcon({
+                className: 'custom-pin',
+                html: `<span class="pin" style="background:${color}"></span>`,
+                iconSize: [16, 16],
+                iconAnchor: [8, 8]
+            });
+        }
+
+        function escapeHtml(text) {
+            return text
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#39;');
+        }
+
+        function renderMarkers(markers) {
+            markerLayer.clearLayers();
+            markerByPlaceId.clear();
+
+            for (const marker of markers) {
+                const popup = `
+                    <div class="popup-card">
+                        <h3>${escapeHtml(marker.title)}</h3>
+                        <p>${escapeHtml(marker.extractPreview)}</p>
+                        ${marker.thumbnailUrl ? `<img src="${marker.thumbnailUrl}" alt="${escapeHtml(marker.title)} thumbnail" loading="lazy" />` : ''}
+                        <p class="topic-label"><strong>Topic:</strong> ${escapeHtml(marker.topicName)}</p>
+                        <a href="${marker.canonicalUrl}" target="_blank" rel="noopener noreferrer">Open in Wikipedia</a>
+                    </div>`;
+
+                const leafletMarker = L.marker([marker.latitude, marker.longitude], { icon: createMarkerIcon(marker.topicColor) })
+                    .bindPopup(popup, { maxWidth: 520 })
+                    .addTo(markerLayer);
+
+                markerByPlaceId.set(marker.placeId, leafletMarker);
+            }
+        }
+
+        function renderTopicResults(markers) {
+            topicResults.innerHTML = '';
+
+            if (markers.length === 0) {
+                topicResults.innerHTML = '<span class="text-muted">No topics loaded yet.</span>';
+                return;
+            }
+
+            const grouped = new Map();
+            for (const marker of markers) {
+                if (!grouped.has(marker.topicName)) {
+                    grouped.set(marker.topicName, { color: marker.topicColor, rows: [] });
+                }
+
+                grouped.get(marker.topicName).rows.push(marker);
+            }
+
+            const sortedTopics = [...grouped.entries()].sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: 'base' }));
+
+            for (const [topicName, topicData] of sortedTopics) {
+                const details = document.createElement('details');
+                details.className = 'topic-group';
+
+                const visibleCount = topicData.rows.filter(r => !r.isHidden).length;
+                const topicVisible = visibleCount > 0;
+                details.innerHTML = `
+                    <summary>
+                        <span class="topic-header-left">
+                            <span class="legend-swatch" style="background:${topicData.color}"></span>
+                            <span>${escapeHtml(topicName)}</span>
+                        </span>
+                        <span class="topic-header-right">
+                            <button type="button" class="btn btn-sm btn-outline-primary topic-find-more-button" data-topic-name="${escapeHtml(topicName)}">Find More</button>
+                            <input
+                                type="checkbox"
+                                class="form-check-input topic-visibility-toggle"
+                                data-topic-name="${escapeHtml(topicName)}"
+                                ${topicVisible ? 'checked' : ''}
+                                aria-label="Toggle visibility for topic ${escapeHtml(topicName)}" />
+                        </span>
+                    </summary>
+                    <div class="table-wrap">
+                        <table class="table table-sm align-middle mb-0 topic-table">
+                            <tbody>
+                                ${topicData.rows.map(row => {
+                                    const thumb = row.thumbnailUrl
+                                        ? `<img src="${row.thumbnailUrl}" alt="${escapeHtml(row.title)} thumbnail" loading="lazy" class="topic-thumb" />`
+                                        : '<span class="topic-thumb-placeholder">No image</span>';
+                                    const stateClass = row.isHidden ? 'row-hidden' : '';
+
+                                    return `
+                                    <tr class="${stateClass}">
+                                        <td>
+                                            <a href="#" class="focus-place-link" data-place-id="${row.placeId}" title="Focus map on ${escapeHtml(row.title)}">${thumb}</a>
+                                        </td>
+                                        <td>
+                                            <a href="#" class="focus-place-link" data-place-id="${row.placeId}">${escapeHtml(row.title)}</a>
+                                        </td>
+                                    </tr>`;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                    </div>`;
+
+                topicResults.appendChild(details);
+            }
+        }
+
+        function focusPlace(placeId) {
+            const target = allTopicRows.find(row => row.placeId === placeId);
+            if (!target) {
+                return;
+            }
+
+            map.setView([target.latitude, target.longitude], Math.max(map.getZoom(), 8));
+            const marker = markerByPlaceId.get(placeId);
+            if (marker) {
+                marker.openPopup();
+            }
+        }
+
+        async function loadMarkers(topic = null) {
+            const url = topic ? `/api/markers?topic=${encodeURIComponent(topic)}` : '/api/markers';
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error('Could not load markers.');
+            }
+
+            const markers = await response.json();
+            renderMarkers(markers);
+
+            const allResponse = await fetch('/api/markers?includeHidden=true');
+            allTopicRows = allResponse.ok ? await allResponse.json() : markers;
+            renderTopicResults(allTopicRows);
+
+            refreshMapSize();
+        }
+
+        async function importTopicBatch(topic, offset) {
+            const response = await fetch('/api/search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ topic, limit: pageSize, offset })
+            });
+
+            if (!response.ok) {
+                const error = await response.json().catch(() => ({}));
+                throw new Error(error.error || 'Search failed.');
+            }
+
+            return response.json();
+        }
+
+        async function setTopicVisibility(topicName, visible) {
+            const rows = allTopicRows.filter(row => row.topicName === topicName);
+            const uniquePlaceIds = [...new Set(rows.map(row => row.placeId))];
+            const action = visible ? 'unhide' : 'hide';
+
+            for (const placeId of uniquePlaceIds) {
+                await setHiddenState(placeId, action);
+            }
+        }
+
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+
+            const topic = topicInput.value.trim();
+            if (!topic) {
+                setStatus('Please enter a topic.', true);
+                return;
+            }
+
+            const offset = 0;
+            searchButton.disabled = true;
+            setStatus(`Searching topic: ${topic}...`);
+
+            try {
+                const imported = await importTopicBatch(topic, offset);
+                if (imported.length === 0) {
+                    setStatus('No coordinate-enabled pages were found for this topic.', true);
+                    await loadMarkers();
+                    return;
+                }
+
+                topicOffsets.set(topic, offset + pageSize);
+                await loadMarkers();
+                setStatus(`Imported ${imported.length} ${imported.length === 1 ? 'place' : 'places'} for ${topic}.`);
+            } catch (error) {
+                setStatus(error.message || 'An unexpected error occurred.', true);
+            } finally {
+                searchButton.disabled = false;
+            }
+        });
+
+        async function setHiddenState(placeId, action) {
+            const endpoint = action === 'unhide' ? 'unhide' : 'hide';
+            const response = await fetch(`/api/places/${placeId}/${endpoint}`, { method: 'POST' });
+            if (!response.ok && response.status !== 404) {
+                throw new Error(`${endpoint} failed`);
+            }
+        }
+
+        topicResults.addEventListener('click', async (event) => {
+            const focusLink = event.target.closest('.focus-place-link');
+            if (focusLink) {
+                event.preventDefault();
+                const placeId = Number.parseInt(focusLink.dataset.placeId || '', 10);
+                if (!Number.isNaN(placeId)) {
+                    focusPlace(placeId);
+                }
+                return;
+            }
+
+            const findMoreButton = event.target.closest('.topic-find-more-button');
+            if (!findMoreButton) {
+                return;
+            }
+
+            event.preventDefault();
+            event.stopPropagation();
+            const topicName = findMoreButton.dataset.topicName;
+            if (!topicName) {
+                setStatus('Could not determine topic for Find More.', true);
+                return;
+            }
+
+            findMoreButton.disabled = true;
+
+            try {
+                const nextOffset = topicOffsets.get(topicName) ?? allTopicRows.filter(row => row.topicName === topicName).length;
+                setStatus(`Finding more places for ${topicName}...`);
+                const imported = await importTopicBatch(topicName, nextOffset);
+                await loadMarkers();
+
+                if (imported.length === 0) {
+                    setStatus(`No additional places were found for ${topicName}.`, true);
+                    return;
+                }
+
+                topicOffsets.set(topicName, nextOffset + pageSize);
+                setStatus(`Imported ${imported.length} more ${imported.length === 1 ? 'place' : 'places'} for ${topicName}.`);
+            } catch (error) {
+                setStatus(error.message || 'Could not fetch more places for this topic.', true);
+            } finally {
+                findMoreButton.disabled = false;
+            }
+        });
+
+        topicResults.addEventListener('change', async (event) => {
+            const visibilityToggle = event.target.closest('.topic-visibility-toggle');
+            if (!visibilityToggle) {
+                return;
+            }
+
+            const topicName = visibilityToggle.dataset.topicName;
+            if (!topicName) {
+                setStatus('Could not determine topic visibility target.', true);
+                return;
+            }
+
+            const shouldBeVisible = visibilityToggle.checked;
+            visibilityToggle.disabled = true;
+
+            try {
+                await setTopicVisibility(topicName, shouldBeVisible);
+                await loadMarkers();
+                setStatus(shouldBeVisible ? `Topic visible: ${topicName}.` : `Topic hidden: ${topicName}.`);
+            } catch {
+                visibilityToggle.checked = !shouldBeVisible;
+                setStatus('Could not update topic visibility.', true);
+            } finally {
+                visibilityToggle.disabled = false;
+            }
+        });
+
+        topicResults.addEventListener('mousedown', (event) => {
+            if (event.target.closest('.topic-find-more-button, .topic-visibility-toggle')) {
+                event.preventDefault();
+            }
+        });
+
+        topicResults.addEventListener('click', (event) => {
+            if (event.target.closest('.topic-find-more-button, .topic-visibility-toggle')) {
+                event.stopPropagation();
+            }
+        });
+
+        map.on('popupopen', (event) => {
+            requestAnimationFrame(() => centerPopupVertically(event.popup));
+        });
+
+        const sidebar = document.querySelector('.sidebar-column');
+        if (sidebar && 'ResizeObserver' in window) {
+            const observer = new ResizeObserver(() => refreshMapSize());
+            observer.observe(sidebar);
+        }
+
+        window.addEventListener('resize', refreshMapSize);
+        setTimeout(refreshMapSize, 0);
+
+        loadMarkers().catch(() => {
+            setStatus('Map loaded but existing markers could not be fetched.', true);
+        });
+    </script>
+}
