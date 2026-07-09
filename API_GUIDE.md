@@ -2,16 +2,14 @@
 
 This guide is written for someone who may be new to web APIs, Entity Framework Core, databases, and mapping libraries.
 
-## 1. Purpose
+## 1. What it does
 
-WikiMapScraper solves a practical problem — how to locate types of things around the world by topic:
-
-1. Take a human topic like "pyramid" or "lighthouse".
-2. Find related Wikipedia pages that can be shown on a map.
-3. Save useful results locally so the app can reuse them.
-4. Let users progressively load more results and control visibility.
-
-Online maps show well-known places, but they are not searchable by topic and tend to contain a lot of noise like business names. Wikipedia has rich place data with coordinates, but it is a live external service that can fail or rate-limit requests — both of which the app needs to handle gracefully. Storing results locally makes the data faster to access and gives consistent behavior on repeat visits.
+- Searches Wikipedia for places by topic (for example: pyramid, lighthouse, statue).
+- Imports matching place data (title, summary, coordinates, thumbnail, URL).
+- Persists topics and places in a SQLite database.
+- Shows markers on a map with per-topic color coding.
+- Exposes lightweight JSON endpoints for search/import and marker retrieval.
+- Includes a detailed markdown architecture guide that explains the full search pipeline.
 
 ## 2. User flow
 
