@@ -1,8 +1,8 @@
-# WikiMapScraper
+# 🗺️ WikiMapScraper
 
 WikiMapScraper is an ASP.NET Core Razor Pages app that searches Wikipedia for coordinate-enabled places by topic, stores results in SQLite, and plots them on an interactive Leaflet map.
 
-## What It Does
+## Purpose
 
 - Searches Wikipedia for places by topic (for example: pyramid, lighthouse, statue).
 - Imports matching place data (title, summary, coordinates, thumbnail, URL).
@@ -11,6 +11,8 @@ WikiMapScraper is an ASP.NET Core Razor Pages app that searches Wikipedia for co
 - Exposes lightweight JSON endpoints for search/import and marker retrieval.
 - Includes a detailed markdown architecture guide that explains the full search pipeline.
 
+https://github.com/user-attachments/assets/5bb6d97a-df8b-45da-8368-3f9b94f2d4c8
+
 ## Tech Stack
 
 - .NET 9 (`net9.0`)
@@ -18,12 +20,6 @@ WikiMapScraper is an ASP.NET Core Razor Pages app that searches Wikipedia for co
 - Entity Framework Core 9 + SQLite
 - Leaflet + OpenStreetMap tiles
 - xUnit tests
-
-## Repository Layout
-
-- `WikiMapScraper.sln` - Solution file
-- `WikiMapScraper.Web/` - Web app
-- `WikiMapScraper.Web.Tests/` - Unit tests
 
 ## Prerequisites
 
@@ -58,7 +54,7 @@ dotnet ef database update --project WikiMapScraper.Web
 dotnet run --project WikiMapScraper.Web
 ```
 
-4. Open the URL shown in the terminal (typically `https://localhost:xxxx`).
+4. Open the URL shown in the terminal (typically `https://localhost:5150`).
 
 ## Running Tests
 
@@ -68,13 +64,9 @@ Run all tests:
 dotnet test
 ```
 
-## Detailed Architecture Guide
+## Detailed Guide
 
-See the dedicated markdown guide:
-
-- `API_GUIDE.md`
-
-This document explains, in detail:
+`API_GUIDE.md` explains:
 
 - How form input becomes API requests (`topic`, `limit`, `offset`)
 - How Wikipedia results are filtered to coordinate-enabled pages
@@ -86,7 +78,7 @@ This document explains, in detail:
 
 ## Configuration
 
-Main settings are in `WikiMapScraper.Web/appsettings.json`.
+The main settings are in `WikiMapScraper.Web/appsettings.json`.
 
 Default connection string:
 
@@ -126,7 +118,7 @@ Returns all imported markers.
 
 Returns markers filtered by topic.
 
-## Current Behavior Notes
+## Behavior Notes
 
 - The UI submits search requests with `limit: 5` and paginates with offset for `Find More`.
 - Topic names are used as entered (trimmed), and each topic gets a deterministic color.
